@@ -105,6 +105,11 @@
   .wa-link{display:block;text-align:center;background:#25D366;color:var(--navy-deep);font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;padding:13px 16px;border-radius:8px;text-decoration:none;margin-bottom:10px;}
   .copy-link{display:block;text-align:center;color:var(--slate);font-size:13px;background:none;border:none;cursor:pointer;width:100%;padding:8px;}
   .copy-link.copied{color:var(--yellow);}
+  .recap-actions{display:flex;gap:8px;margin-bottom:10px;}
+  .btn-validate{flex:1;background:var(--yellow);color:var(--navy-deep);border:none;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;padding:12px 14px;border-radius:8px;cursor:pointer;}
+  .btn-validate:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-correct{background:transparent;border:1px solid var(--line);color:var(--slate);font-family:'Inter',sans-serif;font-size:13.5px;padding:12px 14px;border-radius:8px;cursor:pointer;flex-shrink:0;}
+  .btn-correct:disabled{opacity:.5;cursor:not-allowed;}
 
   @media (prefers-reduced-motion: reduce){ *{animation:none !important;transition:none !important;} }
 </style>
@@ -185,7 +190,7 @@
   const closeBtn = document.getElementById('closeBtn');
 
   let conversation = [];
-  let recapSent = false;
+  let pendingRecap = null;
 
   function addBubble(text, who){
     const b = document.createElement('div');
@@ -291,57 +296,100 @@
 
   function finishConversation(recap){
     chatInputRow.style.display = 'none';
+    pendingRecap = recap;
 
-    const message =
-`Nouveau projet — Gestion Numérique sur Mesure
+    const message = buildMessage(recap);
+
+    const panel = document.createElement('div');
+    panel.className = 'recap-panel';
+    panel.id = 'recapPanel';
+
+    panel.innerHTML = `
+      <h4>Récapitulatif de votre besoin</h4>
+      <div class="recap-box">${message}</div>
+      <div class="recap-actions">
+        <button class="btn-validate" id="validateBtn" type="button">✓ Valider et envoyer</button>
+        <button class="btn-correct" id="correctBtn" type="button">✏️ Corriger avec l'IA</button>
+      </div>
+    `;
+    chatLog.appendChild(panel);
+    chatLog.scrollTop = chatLog.scrollHeight;
+
+    document.getElementById('validateBtn').addEventListener('click', validateAndSend);
+    document.getElementById('correctBtn').addEventListener('click', reopenChatForCorrection);
+  }
+
+  function buildMessage(recap){
+    return `Nouveau projet — Gestion Numérique sur Mesure
 
 Secteur d'activité : ${recap.secteur}
 Difficulté principale : ${recap.difficulte}
 Fonctionnalités attendues : ${recap.fonctionnalites}
 Contact : ${recap.nom} — ${recap.whatsapp}`;
+  }
 
-    const panel = document.createElement('div');
-    panel.className = 'recap-panel';
+  function reopenChatForCorrection(){
+    const panel = document.getElementById('recapPanel');
+    if(panel) panel.remove();
+    chatInputRow.style.display = 'flex';
+    conversation.push({
+      role: 'user',
+      content: "En fait, je voudrais corriger ou préciser une information avant de valider. Peux-tu me redemander ce qui doit être corrigé ?"
+    });
+    addBubble("Je veux corriger quelque chose avant de valider.", 'user');
+    showTyping();
+    sendToAI();
+    chatInput.focus();
+  }
+
+  async function validateAndSend(){
+    if(!pendingRecap) return;
+    const recap = pendingRecap;
+    const message = buildMessage(recap);
+
+    const validateBtn = document.getElementById('validateBtn');
+    const correctBtn = document.getElementById('correctBtn');
+    if(validateBtn){ validateBtn.disabled = true; validateBtn.textContent = 'Envoi en cours...'; }
+    if(correctBtn){ correctBtn.disabled = true; }
+
     const waText = encodeURIComponent(message);
     const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${waText}`;
 
-    panel.innerHTML = `
-      <h4>Récapitulatif de votre besoin</h4>
-      <div class="recap-box">${message}</div>
-      <div class="email-status" id="emailStatus">Envoi en cours vers l'équipe...</div>
-      <a class="wa-link" href="${waUrl}" target="_blank" rel="noopener">Envoyer aussi sur WhatsApp</a>
-      <button class="copy-link" id="copyBtn" type="button">Copier le message</button>
-    `;
-    chatLog.appendChild(panel);
-    chatLog.scrollTop = chatLog.scrollHeight;
-
-    document.getElementById('copyBtn').addEventListener('click', () => {
-      navigator.clipboard.writeText(message).then(() => {
-        const btn = document.getElementById('copyBtn');
-        btn.textContent = 'Message copié ✓';
-        btn.classList.add('copied');
-      });
-    });
-
-    if(!recapSent){
-      recapSent = true;
-      emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+    let emailOk = false;
+    try{
+      await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
         secteur: recap.secteur,
         difficulte: recap.difficulte,
         fonctionnalites: recap.fonctionnalites,
         nom: recap.nom,
         whatsapp: recap.whatsapp,
         message: message
-      }).then(() => {
-        const s = document.getElementById('emailStatus');
-        s.textContent = "✓ Informations envoyées par e-mail";
-        s.classList.add('ok');
-      }).catch(() => {
-        const s = document.getElementById('emailStatus');
-        s.textContent = "L'envoi automatique a échoué — utilise WhatsApp ci-dessous";
-        s.classList.add('err');
+      });
+      emailOk = true;
+    }catch(err){
+      emailOk = false;
+    }
+
+    const panel = document.getElementById('recapPanel');
+    if(panel){
+      panel.innerHTML = `
+        <h4>Récapitulatif de votre besoin</h4>
+        <div class="recap-box">${message}</div>
+        <div class="email-status ${emailOk ? 'ok' : 'err'}">
+          ${emailOk ? "✓ Informations envoyées par e-mail" : "L'envoi automatique a échoué — utilise WhatsApp ci-dessous"}
+        </div>
+        <a class="wa-link" href="${waUrl}" target="_blank" rel="noopener">Envoyer aussi sur WhatsApp</a>
+        <button class="copy-link" id="copyBtn" type="button">Copier le message</button>
+      `;
+      document.getElementById('copyBtn').addEventListener('click', () => {
+        navigator.clipboard.writeText(message).then(() => {
+          const btn = document.getElementById('copyBtn');
+          btn.textContent = 'Message copié ✓';
+          btn.classList.add('copied');
+        });
       });
     }
+    chatLog.scrollTop = chatLog.scrollHeight;
   }
 </script>
 
