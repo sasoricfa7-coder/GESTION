@@ -70,6 +70,7 @@
     width:100%;max-width:480px;
     height:min(86vh,640px);
     display:flex;flex-direction:column;
+    position:relative;
     animation:slideUp .25s ease;
   }
   @media (min-width:560px){ .overlay{align-items:center;padding:24px;} .chat-modal{border-radius:16px;} }
@@ -96,8 +97,6 @@
   .send-btn{background:var(--yellow);color:var(--navy-deep);border:none;font-weight:600;font-size:14px;padding:0 18px;border-radius:8px;cursor:pointer;flex-shrink:0;}
   .send-btn:disabled{opacity:.4;cursor:not-allowed;}
 
-  .recap-panel{padding:18px;overflow-y:auto;}
-  .recap-panel h4{font-size:17px;margin-bottom:14px;}
   .recap-box{background:var(--navy);border:1px solid var(--line);border-radius:8px;padding:15px;font-size:13.5px;color:var(--slate);white-space:pre-wrap;margin-bottom:16px;line-height:1.6;}
   .email-status{font-size:13px;color:var(--slate);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
   .email-status.ok{color:#25D366;}
@@ -110,6 +109,20 @@
   .btn-validate:disabled{opacity:.5;cursor:not-allowed;}
   .btn-correct{background:transparent;border:1px solid var(--line);color:var(--slate);font-family:'Inter',sans-serif;font-size:13.5px;padding:12px 14px;border-radius:8px;cursor:pointer;flex-shrink:0;}
   .btn-correct:disabled{opacity:.5;cursor:not-allowed;}
+
+  .recap-overlay{
+    position:absolute;
+    inset:0;
+    background:var(--navy-deep);
+    display:none;
+    flex-direction:column;
+    z-index:20;
+    border-radius:16px;
+  }
+  .recap-overlay.open{display:flex;}
+  .recap-overlay-header{padding:16px 18px;border-bottom:1px solid var(--line);flex-shrink:0;}
+  .recap-overlay-header h4{font-size:16px;}
+  .recap-overlay-body{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;}
 
   @media (prefers-reduced-motion: reduce){ *{animation:none !important;transition:none !important;} }
 </style>
@@ -136,7 +149,7 @@
   <section class="process" aria-label="Comment ça marche">
     <div class="wrap">
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><div class="step-text"><strong>Décrivez votre besoin</strong><span>Discutez avec l'assistant IA qui identifie votre besoin réel.</span></div></div>
+        <div class="step"><span class="step-num">1</span><div class="step-text"><strong>Décrivez votre besoin</strong><span>Discutez avec Jeanne, notre assistante IA, qui identifie votre besoin réel.</span></div></div>
         <div class="step"><span class="step-num">2</span><div class="step-text"><strong>Je code votre outil</strong><span>Développement d'une solution adaptée à votre problème.</span></div></div>
         <div class="step"><span class="step-num">3</span><div class="step-text"><strong>Installation gratuite</strong><span>Mise en place chez vous, sans frais de démarrage.</span></div></div>
       </div>
@@ -146,7 +159,7 @@
   <section class="contact" id="contact">
     <div class="wrap">
       <h3>Contact</h3>
-      <p>Cliquez sur le bouton ci-dessus : un assistant IA vous pose quelques questions pour cerner votre besoin, puis vos réponses me sont envoyées directement — et un message récapitulatif s'ouvre pour WhatsApp.</p>
+      <p>Cliquez sur le bouton ci-dessus : Jeanne, notre assistante IA, vous pose quelques questions pour cerner votre besoin, puis vous validez pour que vos réponses me soient envoyées — avec un message prêt pour WhatsApp.</p>
     </div>
   </section>
 </main>
@@ -158,10 +171,14 @@
 <div class="overlay" id="overlay">
   <div class="chat-modal" id="chatModal">
     <div class="chat-header">
-      <div class="title"><span class="status-dot"></span> Assistant Gestion Numérique</div>
+      <div class="title"><span class="status-dot"></span> Jeanne — Gestion Numérique</div>
       <button class="close-x" id="closeBtn" type="button" aria-label="Fermer">✕</button>
     </div>
     <div class="chat-log" id="chatLog"></div>
+    <div class="recap-overlay" id="recapOverlay">
+      <div class="recap-overlay-header"><h4>Récapitulatif de votre besoin</h4></div>
+      <div class="recap-overlay-body" id="recapOverlayBody"></div>
+    </div>
     <div class="chat-input-row" id="chatInputRow">
       <input id="chatInput" type="text" placeholder="Écrivez votre réponse..." autocomplete="off">
       <button class="send-btn" id="sendBtn" type="button">Envoyer</button>
@@ -170,14 +187,14 @@
 </div>
 
 <script>
-  // ===================== CONFIGURATION À REMPLIR =====================
+  // ===================== CONFIGURATION =====================
   const WORKER_URL = "https://worker-ia-gestion-numerique.sasoricfa7-dev.workers.dev";
   const WHATSAPP_NUMBER = "22644334833";
 
   const EMAILJS_PUBLIC_KEY  = "f4bL6pG6jT95vMPBd";
   const EMAILJS_SERVICE_ID  = "service_na187bp";
   const EMAILJS_TEMPLATE_ID = "template_z6fotbo";
-  // =====================================================================
+  // ============================================================
 
   emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
 
@@ -188,6 +205,8 @@
   const chatInputRow = document.getElementById('chatInputRow');
   const openBtn = document.getElementById('openChat');
   const closeBtn = document.getElementById('closeBtn');
+  const recapOverlay = document.getElementById('recapOverlay');
+  const recapOverlayBody = document.getElementById('recapOverlayBody');
 
   let conversation = [];
   let pendingRecap = null;
@@ -252,7 +271,6 @@
           const whatsappHasCountryCode = /\+?\d{2,4}[\s-]?\d{6,}/.test(recap.whatsapp || '') && (recap.whatsapp || '').replace(/\D/g,'').length >= 10;
 
           if(missing.length > 0 || !whatsappHasCountryCode){
-            // Info incomplète : on ne conclut pas, on relance la conversation
             conversation.push({
               role: 'user',
               content: '(Le système note qu\'il manque encore une information, notamment un numéro WhatsApp complet avec indicatif pays. Merci de continuer à me la demander.)'
@@ -295,25 +313,17 @@
   overlay.addEventListener('click', (e) => { if(e.target === overlay) closeChat(); });
 
   function finishConversation(recap){
-    chatInputRow.style.display = 'none';
     pendingRecap = recap;
-
     const message = buildMessage(recap);
 
-    const panel = document.createElement('div');
-    panel.className = 'recap-panel';
-    panel.id = 'recapPanel';
-
-    panel.innerHTML = `
-      <h4>Récapitulatif de votre besoin</h4>
+    recapOverlayBody.innerHTML = `
       <div class="recap-box">${message}</div>
       <div class="recap-actions">
         <button class="btn-validate" id="validateBtn" type="button">✓ Valider et envoyer</button>
         <button class="btn-correct" id="correctBtn" type="button">✏️ Corriger avec l'IA</button>
       </div>
     `;
-    chatLog.appendChild(panel);
-    chatLog.scrollTop = chatLog.scrollHeight;
+    recapOverlay.classList.add('open');
 
     document.getElementById('validateBtn').addEventListener('click', validateAndSend);
     document.getElementById('correctBtn').addEventListener('click', reopenChatForCorrection);
@@ -329,8 +339,7 @@ Contact : ${recap.nom} — ${recap.whatsapp}`;
   }
 
   function reopenChatForCorrection(){
-    const panel = document.getElementById('recapPanel');
-    if(panel) panel.remove();
+    recapOverlay.classList.remove('open');
     chatInputRow.style.display = 'flex';
     conversation.push({
       role: 'user',
@@ -346,16 +355,23 @@ Contact : ${recap.nom} — ${recap.whatsapp}`;
     if(!pendingRecap) return;
     const recap = pendingRecap;
     const message = buildMessage(recap);
-
-    const validateBtn = document.getElementById('validateBtn');
-    const correctBtn = document.getElementById('correctBtn');
-    if(validateBtn){ validateBtn.disabled = true; validateBtn.textContent = 'Envoi en cours...'; }
-    if(correctBtn){ correctBtn.disabled = true; }
-
     const waText = encodeURIComponent(message);
     const waUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${waText}`;
 
-    let emailOk = false;
+    recapOverlayBody.innerHTML = `
+      <div class="recap-box">${message}</div>
+      <div class="email-status" id="emailStatus">Envoi de l'e-mail en cours...</div>
+      <a class="wa-link" href="${waUrl}" target="_blank" rel="noopener">Envoyer aussi sur WhatsApp</a>
+      <button class="copy-link" id="copyBtn" type="button">Copier le message</button>
+    `;
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText(message).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'Message copié ✓';
+        btn.classList.add('copied');
+      });
+    });
+
     try{
       await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
         secteur: recap.secteur,
@@ -365,31 +381,12 @@ Contact : ${recap.nom} — ${recap.whatsapp}`;
         whatsapp: recap.whatsapp,
         message: message
       });
-      emailOk = true;
+      const s = document.getElementById('emailStatus');
+      if(s){ s.textContent = "✓ Informations envoyées par e-mail"; s.classList.add('ok'); }
     }catch(err){
-      emailOk = false;
+      const s = document.getElementById('emailStatus');
+      if(s){ s.textContent = "L'envoi automatique a échoué — utilise WhatsApp ci-dessus"; s.classList.add('err'); }
     }
-
-    const panel = document.getElementById('recapPanel');
-    if(panel){
-      panel.innerHTML = `
-        <h4>Récapitulatif de votre besoin</h4>
-        <div class="recap-box">${message}</div>
-        <div class="email-status ${emailOk ? 'ok' : 'err'}">
-          ${emailOk ? "✓ Informations envoyées par e-mail" : "L'envoi automatique a échoué — utilise WhatsApp ci-dessous"}
-        </div>
-        <a class="wa-link" href="${waUrl}" target="_blank" rel="noopener">Envoyer aussi sur WhatsApp</a>
-        <button class="copy-link" id="copyBtn" type="button">Copier le message</button>
-      `;
-      document.getElementById('copyBtn').addEventListener('click', () => {
-        navigator.clipboard.writeText(message).then(() => {
-          const btn = document.getElementById('copyBtn');
-          btn.textContent = 'Message copié ✓';
-          btn.classList.add('copied');
-        });
-      });
-    }
-    chatLog.scrollTop = chatLog.scrollHeight;
   }
 </script>
 
