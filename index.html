@@ -45,6 +45,20 @@
   .cta:focus-visible{outline:3px solid var(--white);outline-offset:3px;}
   .cta:active{transform:translateY(0);}
 
+  .offer-banner{
+    background:rgba(255,204,0,0.08);
+    border:1px solid rgba(255,204,0,0.3);
+    border-radius:10px;
+    padding:14px 18px;
+    margin:0 auto 24px;
+    max-width:400px;
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;
+    font-size:14px;
+    color:var(--yellow);
+    text-align:center;
+  }
+
   .process{padding:36px 0 56px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
   .steps{display:flex;flex-direction:column;gap:0;}
   .step{display:flex;gap:16px;padding:14px 0;position:relative;}
@@ -141,6 +155,7 @@
       <span class="eyebrow">Développement local &middot; Livraison gratuite</span>
       <h2>Automatisez votre activité, gagnez du temps, ne perdez plus vos données.</h2>
       <p>Un outil numérique conçu pour votre commerce, codé par un développeur de votre région.</p>
+      <div class="offer-banner" id="offerBanner"></div>
       <button class="cta" id="openChat" type="button">Démarrer mon projet gratuitement</button>
     </div>
   </section>
@@ -366,6 +381,13 @@ Contact : ${recap.nom} — ${recap.whatsapp}`;
       });
     });
 
+    // Archivage GitHub, en parallèle de l'e-mail, indépendant de son succès
+    fetch(WORKER_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'archive', recap: recap })
+    }).catch(err => console.error('Archive GitHub échouée:', err));
+
     try{
       await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
         secteur: recap.secteur,
@@ -383,6 +405,33 @@ Contact : ${recap.nom} — ${recap.whatsapp}`;
       if(s){ s.textContent = "L'envoi a échoué (détail dans la console F12) — copie le message ci-dessous"; s.classList.add('err'); }
     }
   }
+
+  // ===== Moteur de compte à rebours réutilisable =====
+  const OFFER_START = new Date("2026-07-10T00:00:00");
+  const OFFER_DURATION_DAYS = 30;
+
+  function renderCountdown(){
+    const end = new Date(OFFER_START.getTime() + OFFER_DURATION_DAYS * 86400000);
+    const now = new Date();
+    const diffMs = end - now;
+    const el = document.getElementById('offerBanner');
+    if(!el) return;
+
+    if(diffMs <= 0){
+      el.textContent = "Offre de lancement terminée";
+      return;
+    }
+    const totalDays = Math.ceil(diffMs / 86400000);
+    const weeks = Math.floor(totalDays / 7);
+    const days = totalDays % 7;
+    let text = "⏳ Offre gratuite valable encore ";
+    if(weeks > 0) text += `${weeks} semaine${weeks>1?'s':''}`;
+    if(weeks > 0 && days > 0) text += " et ";
+    if(days > 0 || weeks === 0) text += `${days} jour${days>1?'s':''}`;
+    el.textContent = text;
+  }
+  renderCountdown();
+  setInterval(renderCountdown, 3600000);
 </script>
 
 </body>
